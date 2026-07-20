@@ -1,0 +1,70 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ai_gateway
+      POSTGRES_USER: gateway
+      POSTGRES_PASSWORD: gateway_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gateway"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Local Gemma model, served OpenAI-compatible via Ollama.
+  # Pull the model after first start: `docker exec -it ai-gateway-ollama-1 ollama pull gemma3:4b`
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql://gateway:gateway_dev_password@postgres:5432/ai_gateway
+      REDIS_URL: redis://redis:6379/0
+      GEMMA_BASE_URL: http://ollama:11434/v1
+      GEMMA_MODEL_NAME: gemma3:4b
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE: http://localhost:8000
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+volumes:
+  pg_data:
+  ollama_data:
