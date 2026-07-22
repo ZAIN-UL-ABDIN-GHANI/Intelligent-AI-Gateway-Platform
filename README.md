@@ -95,7 +95,7 @@ docker-compose.yml
 | 8. Project Structure | [docs/phase8-project-structure.md](./docs/phase8-project-structure.md) |
 | 9. Development Roadmap | [docs/phase9-development-roadmap.md](./docs/phase9-development-roadmap.md) |
 
-## Honest scope notes (what's real vs. what's simplified for hackathon time)
+## Honest scope notes
 
 - **Real and tested**: the full routing pipeline (intent/complexity/risk/token/cost/latency/confidence agents), LangGraph orchestration with retry/fallback, exact + semantic caching, budget-pressure-aware routing, explainability traces, auth, rate limiting, analytics — all covered by 39 passing unit + integration tests.
 - **Mocked by design, not by omission**: cloud provider responses run in a clearly-labeled mock mode when no API key is set, so the system is demoable without burning quota; swap in real keys and it calls the real APIs via LiteLLM.
