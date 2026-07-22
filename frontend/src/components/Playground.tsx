@@ -45,7 +45,11 @@ export default function Playground({
 
   async function sendFeedback(rating: "up" | "down") {
     if (!response) return;
-    await api.sendFeedback(apiKey, response.trace_id, rating);
+    try {
+      await api.sendFeedback(apiKey, response.trace_id, rating);
+    } catch {
+      setError("Failed to submit feedback");
+    }
   }
 
   return (
@@ -56,11 +60,13 @@ export default function Playground({
           className="w-full h-40 bg-surface border border-border rounded-md p-3 font-mono text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gemma resize-none"
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
+          aria-label="Prompt input"
         />
         <select
           className="w-full bg-surface border border-border rounded-md p-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gemma"
           value={forceBackend}
           onChange={(e) => setForceBackend(e.target.value)}
+          aria-label="Backend selection"
         >
           {FORCE_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>

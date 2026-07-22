@@ -13,10 +13,18 @@ const COLOR_HEX: Record<string, string> = {
 export default function Dashboard({ apiKey, refreshKey }: { apiKey: string; refreshKey: number }) {
   const [cost, setCost] = useState<CostBreakdown | null>(null);
   const [dist, setDist] = useState<RoutingDistribution | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.costAnalytics(apiKey).then(setCost).catch(() => {});
-    api.routingDistribution(apiKey).then(setDist).catch(() => {});
+    setLoading(true);
+    setError(null);
+    Promise.all([
+      api.costAnalytics(apiKey).then(setCost),
+      api.routingDistribution(apiKey).then(setDist),
+    ])
+      .catch((e) => setError(e.message || "Failed to load analytics"))
+      .finally(() => setLoading(false));
   }, [apiKey, refreshKey]);
 
   const totalRequests = dist?.distribution.reduce((sum, d) => sum + d.count, 0) || 0;
@@ -24,6 +32,8 @@ export default function Dashboard({ apiKey, refreshKey }: { apiKey: string; refr
 
   return (
     <div className="space-y-6">
+      {loading && <p className="text-sm text-muted animate-pulse">Loading analytics...</p>}
+      {error && <p className="text-sm text-red-400 bg-red-900/20 border border-red-800 rounded p-3">{error}</p>}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard label="Total cost" value={`$${(cost?.total_cost || 0).toFixed(4)}`} />
         <KpiCard label="Total requests" value={String(totalRequests)} />

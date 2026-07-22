@@ -10,6 +10,7 @@ export default function App() {
   const [apiKey, setApiKey] = useState<string | null>(null);
   const [orgName, setOrgName] = useState("");
   const [busy, setBusy] = useState(false);
+  const [setupError, setSetupError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("playground");
   const [manifest, setManifest] = useState<ManifestEntry[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -17,12 +18,13 @@ export default function App() {
   async function handleBootstrap() {
     if (!orgName.trim()) return;
     setBusy(true);
+    setSetupError(null);
     try {
       const org = await api.bootstrapOrg(orgName.trim());
       const key = await api.createApiKey(org.admin_token, "console");
       setApiKey(key.key);
     } catch {
-      alert("Could not reach the gateway. Is the backend running on the configured VITE_API_BASE?");
+      setSetupError("Could not reach the gateway. Is the backend running?");
     } finally {
       setBusy(false);
     }
@@ -53,7 +55,9 @@ export default function App() {
             value={orgName}
             onChange={(e) => setOrgName(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleBootstrap()}
+            aria-label="Organization name"
           />
+          {setupError && <p className="text-sm text-red-400">{setupError}</p>}
           <button
             onClick={handleBootstrap}
             disabled={busy}
