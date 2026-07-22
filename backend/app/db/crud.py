@@ -42,15 +42,14 @@ def record_trace(db: Session, **kwargs) -> models.RoutingTrace:
         **kwargs,
     )
     db.add(trace)
-    db.commit()
-    db.refresh(trace)
+    db.flush()
 
-    # update budget spend
     budget = db.query(models.Budget).filter(models.Budget.org_id == kwargs["org_id"]).first()
     if budget is not None and trace.cost:
         budget.current_spend = Decimal(str(budget.current_spend)) + Decimal(str(trace.cost))
-        db.commit()
 
+    db.commit()
+    db.refresh(trace)
     return trace
 
 

@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import admin, analytics, chat, health, traces
 from app.core.logging import setup_logging
+from app.core.middleware import register_middleware
 from app.config import get_settings
 from app.db.session import init_db
 
@@ -18,10 +19,12 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tightened via reverse proxy config in production
+    allow_origins=["http://localhost:3000", "http://localhost:5173"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+register_middleware(app)
 
 app.include_router(health.router)
 app.include_router(chat.router)

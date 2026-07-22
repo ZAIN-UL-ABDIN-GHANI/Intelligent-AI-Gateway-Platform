@@ -29,14 +29,14 @@ class UpdateBudgetRequest(BaseModel):
     monthly_limit: float
 
 
-@router.post("/organizations")
+@router.post("/organizations", status_code=201)
 def create_organization(body: CreateOrgRequest, db: Session = Depends(get_db_session)):
     org = crud.create_organization(db, body.name, body.privacy_policy)
     token = create_access_token(org.id)
     return {"org_id": org.id, "name": org.name, "admin_token": token}
 
 
-@router.post("/api-keys")
+@router.post("/api-keys", status_code=201)
 def create_api_key(
     body: CreateApiKeyRequest,
     session=Depends(require_admin_session),

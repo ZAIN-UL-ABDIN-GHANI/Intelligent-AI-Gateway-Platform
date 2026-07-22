@@ -1,10 +1,13 @@
 """API key hashing + JWT helpers (Phase 6 §13)."""
 import hashlib
 import secrets
+import time
 
 import jwt
 
 from app.config import get_settings
+
+_JWT_EXPIRY_SECONDS = 60 * 60 * 24 * 7  # 7 days
 
 
 def generate_api_key() -> str:
@@ -17,7 +20,12 @@ def hash_api_key(raw_key: str) -> str:
 
 def create_access_token(org_id: str, role: str = "org_admin") -> str:
     settings = get_settings()
-    payload = {"org_id": org_id, "role": role}
+    payload = {
+        "org_id": org_id,
+        "role": role,
+        "iat": int(time.time()),
+        "exp": int(time.time()) + _JWT_EXPIRY_SECONDS,
+    }
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 

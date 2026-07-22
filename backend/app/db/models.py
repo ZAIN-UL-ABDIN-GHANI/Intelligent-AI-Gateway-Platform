@@ -1,6 +1,6 @@
 """SQLAlchemy ORM models. See Phase 5 database design for full schema rationale."""
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import (
     Boolean, Column, DateTime, Float, ForeignKey, Integer, Numeric, String, Text,
@@ -14,13 +14,17 @@ def gen_uuid() -> str:
     return str(uuid.uuid4())
 
 
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 class Organization(Base):
     __tablename__ = "organizations"
 
     id = Column(String, primary_key=True, default=gen_uuid)
     name = Column(String(255), nullable=False)
     privacy_policy = Column(String(50), nullable=False, default="strict")
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
 
     api_keys = relationship("ApiKey", back_populates="organization", cascade="all,delete")
     traces = relationship("RoutingTrace", back_populates="organization", cascade="all,delete")
@@ -35,7 +39,7 @@ class ApiKey(Base):
     key_hash = Column(String(255), nullable=False, unique=True)
     label = Column(String(255), default="")
     active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
     last_used_at = Column(DateTime, nullable=True)
 
     organization = relationship("Organization", back_populates="api_keys")
@@ -71,7 +75,7 @@ class RoutingTrace(Base):
     cache_hit = Column(Boolean, default=False)
     reason = Column(Text)
     candidate_scores = Column(Text)  # JSON-encoded dict, kept simple for SQLite portability
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
 
     organization = relationship("Organization", back_populates="traces")
     feedback = relationship("Feedback", back_populates="trace", uselist=False, cascade="all,delete")
@@ -84,7 +88,7 @@ class Feedback(Base):
     trace_id = Column(String, ForeignKey("routing_traces.id"), nullable=False)
     rating = Column(String(10), nullable=False)  # 'up' | 'down'
     comment = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
 
     trace = relationship("RoutingTrace", back_populates="feedback")
 

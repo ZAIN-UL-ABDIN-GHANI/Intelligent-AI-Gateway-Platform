@@ -1,6 +1,10 @@
 """Application configuration loaded from environment variables."""
+import logging
 from functools import lru_cache
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger("ai_gateway.config")
 
 
 class Settings(BaseSettings):
@@ -20,8 +24,15 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     openai_api_key: str = ""
     google_api_key: str = ""
-    gemma_base_url: str = "http://localhost:11434/v1"  # Ollama OpenAI-compatible endpoint
-    gemma_model_name: str = "gemma3:4b"
+    gemma_base_url: str = "http://localhost:11434/v1"
+    gemma_model_name: str = "gemma2:2b"
+
+    # Provider timeouts (seconds)
+    provider_timeout_ollama: int = 15
+    provider_timeout_openai: int = 45
+    provider_timeout_anthropic: int = 60
+    provider_timeout_google: int = 45
+    provider_max_retries: int = 2
 
     # Routing
     default_weight_quality: float = 0.4
@@ -36,4 +47,20 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    settings = Settings()
+    _log_provider_status(settings)
+    return settings
+
+
+def _log_provider_status(settings: Settings) -> None:
+    providers = {
+        "anthropic": bool(settings.anthropic_api_key and settings.anthropic_api_key.strip()),
+        "openai": bool(settings.openai_api_key and settings.openai_api_key.strip()),
+        "google": bool(settings.google_api_key and settings.google_api_key.strip()),
+        "ollama": True,
+    }
+    for name, configured in providers.items():
+        if configured:
+            logger.info("Provider %s: LIVE mode", name)
+        else:
+            logger.warning("Provider %s: MOCK mode (no API key)", name)

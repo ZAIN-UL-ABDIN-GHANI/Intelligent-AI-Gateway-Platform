@@ -1,16 +1,32 @@
 """POST /v1/chat/completions (Phase 6 §1)."""
+import json
+
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.cache.exact_cache import get_cached, set_cached
 from app.cache.semantic_cache import semantic_lookup, semantic_store
 from app.db import crud
 from app.deps import get_db_session, require_api_key
+from app.providers.litellm_client import ProviderError, call_backend_stream
 from app.routing.graph import run_routing
 from app.routing.health import mark_degraded
 from app.schemas.chat import ChatCompletionRequest, ChatCompletionResponse, Usage
 
 router = APIRouter(prefix="/v1", tags=["chat"])
+
+
+def _sse_stream(backend_name: str, messages: list[dict]):
+    """Yield Server-Sent Events for streaming responses."""
+    try:
+        for chunk in call_backend_stream(backend_name, messages):
+            payload = json.dumps({"content": chunk, "routed_model": backend_name})
+            yield f"data: {payload}\n\n"
+        yield "data: [DONE]\n\n"
+    except ProviderError as exc:
+        error_payload = json.dumps({"error": str(exc), "error_type": exc.error_type})
+        yield f"data: {error_payload}\n\n"
 
 
 @router.post("/chat/completions", response_model=ChatCompletionResponse)
@@ -25,12 +41,19 @@ def chat_completions(
 
     cached = get_cached(org.id, prompt)
     if cached is None:
-        # semantic lookup needs risk level; do a cheap pre-check reusing the risk agent
         from app.routing.agents.risk import classify_risk
         risk_level = classify_risk(prompt)
         cached = semantic_lookup(org.id, prompt, risk_level)
 
     if cached is not None:
+        if body.stream:
+            # Stream cached content as a single SSE chunk
+            def _cached_stream():
+                payload = json.dumps({"content": cached["content"], "routed_model": cached["routed_model"]})
+                yield f"data: {payload}\n\n"
+                yield "data: [DONE]\n\n"
+            return StreamingResponse(_cached_stream(), media_type="text/event-stream")
+
         trace = crud.record_trace(
             db,
             org_id=org.id,
@@ -70,6 +93,13 @@ def chat_completions(
         for attempted in result.get("attempted_backends", []):
             mark_degraded(attempted)
         raise HTTPException(503, detail={"code": "all_backends_unavailable", "message": "No backend could serve this request"})
+
+    # If stream was requested, re-stream from the chosen backend
+    if body.stream:
+        return StreamingResponse(
+            _sse_stream(result["chosen_backend"], messages),
+            media_type="text/event-stream",
+        )
 
     trace = crud.record_trace(
         db,

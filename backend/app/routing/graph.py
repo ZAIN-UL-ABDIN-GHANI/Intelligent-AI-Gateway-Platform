@@ -11,12 +11,14 @@ from langgraph.graph import END, StateGraph
 from app.providers.litellm_client import ProviderError, call_backend
 from app.routing.agents.complexity import score_complexity
 from app.routing.agents.confidence import update_confidence
+from app.routing.agents.cost_predictor import predict_cost
 from app.routing.agents.intent import detect_intent
 from app.routing.agents.latency_predictor import record_latency
 from app.routing.agents.risk import classify_risk
 from app.routing.agents.token_predictor import estimate_input_tokens, estimate_output_tokens
-from app.routing.health import get_healthy_backends
+from app.routing.health import get_healthy_backends, mark_degraded
 from app.routing.policy import budget_pressure, eligible_backends, score_candidates
+from app.routing.registry import BACKENDS
 
 logger = logging.getLogger("ai_gateway.routing")
 
@@ -69,6 +71,10 @@ def node_decide(state: RoutingState) -> RoutingState:
 
     if state.get("force_backend"):
         chosen = state["force_backend"]
+        if chosen not in BACKENDS:
+            return {**state, "chosen_backend": "", "reason": f"forced backend '{chosen}' does not exist", "error": "invalid_backend"}
+        if chosen not in healthy:
+            return {**state, "chosen_backend": "", "reason": f"forced backend '{chosen}' is degraded", "error": "backend_degraded"}
         return {
             **state,
             "chosen_backend": chosen,
@@ -94,11 +100,14 @@ def node_decide(state: RoutingState) -> RoutingState:
         input_tokens=state["input_tokens"],
         output_tokens=state["output_tokens"],
         budget_pressure=pressure,
+        complexity=state.get("complexity", 0.0),
     )
     best = scored[0]
     reason = (
         f"routed to {best.backend}: intent={state['intent']}, risk={state['risk_level']}, "
-        f"quality_confidence={best.quality}, score={best.score}"
+        f"complexity={state.get('complexity', 0):.3f}, budget_pressure={pressure:.2f}, "
+        f"quality={best.quality:.3f}, cost=${best.cost:.4f}, latency={best.latency:.0f}ms, "
+        f"final_score={best.score}"
     )
     return {
         **state,
@@ -110,17 +119,21 @@ def node_decide(state: RoutingState) -> RoutingState:
 
 def node_call(state: RoutingState) -> RoutingState:
     backend = state["chosen_backend"]
+    if not backend:
+        return {**state, "error": "all_backends_failed"}
+
     attempted = state.get("attempted_backends", []) + [backend]
     try:
         content, latency_ms = call_backend(backend, state["messages"])
     except ProviderError as exc:
-        logger.warning("Backend %s failed (%s); will attempt fallback", backend, exc)
+        logger.warning("Backend %s failed (%s: %s); marking degraded, will attempt fallback", backend, exc.error_type, exc)
+        mark_degraded(backend)
+        update_confidence(state["intent"], backend, success=False)
         return {**state, "attempted_backends": attempted, "error": "backend_call_failed"}
 
     record_latency(backend, latency_ms)
     update_confidence(state["intent"], backend, success=True)
 
-    from app.routing.agents.cost_predictor import predict_cost
     actual_cost = predict_cost(backend, state["input_tokens"], state["output_tokens"])
 
     return {
@@ -134,7 +147,7 @@ def node_call(state: RoutingState) -> RoutingState:
 
 
 def should_retry(state: RoutingState) -> str:
-    if state.get("error") and len(state.get("attempted_backends", [])) < 3:
+    if state.get("error") and len(state.get("attempted_backends", [])) < len(BACKENDS):
         return "retry"
     if state.get("error"):
         return "give_up"

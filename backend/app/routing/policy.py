@@ -2,6 +2,7 @@
 from dataclasses import dataclass
 
 from app.config import get_settings
+from app.providers.litellm_client import _is_mock
 from app.routing.agents.confidence import get_confidence
 from app.routing.agents.cost_predictor import predict_cost
 from app.routing.agents.latency_predictor import predict_latency
@@ -35,7 +36,12 @@ def eligible_backends(
         if risk_level == "high" and privacy_policy == "strict" and not spec.is_local:
             continue
         result.append(name)
-    # Guarantee at least one eligible backend: fall back to any local backend for high risk
+
+    # Prefer live backends over mock ones when live options exist
+    live = [b for b in result if not _is_mock(b)]
+    if live:
+        result = live
+
     if not result and risk_level == "high":
         result = [n for n in BACKENDS if BACKENDS[n].is_local and n in healthy_backends]
     return result
@@ -47,6 +53,7 @@ def score_candidates(
     input_tokens: int,
     output_tokens: int,
     budget_pressure: float,
+    complexity: float = 0.0,
     weights: dict | None = None,
 ) -> list[CandidateScore]:
     settings = get_settings()
@@ -56,6 +63,10 @@ def score_candidates(
         "latency": settings.default_weight_latency,
         "budget": settings.default_weight_budget,
     }
+
+    # Boost quality weight for complex queries — complex tasks need stronger models
+    quality_w = w["quality"] + (complexity * 0.2)
+    total_w = quality_w + w["cost"] + w["latency"] + w["budget"]
 
     raw_costs = {b: predict_cost(b, input_tokens, output_tokens) for b in candidates}
     raw_latencies = {b: predict_latency(b) for b in candidates}
@@ -69,10 +80,10 @@ def score_candidates(
         norm_latency = raw_latencies[b] / max_latency
         is_cheap_bonus = (1.0 - norm_cost) * budget_pressure
         score = (
-            w["quality"] * quality
-            + w["cost"] * (1 - norm_cost)
-            + w["latency"] * (1 - norm_latency)
-            + w["budget"] * is_cheap_bonus
+            (quality_w / total_w) * quality
+            + (w["cost"] / total_w) * (1 - norm_cost)
+            + (w["latency"] / total_w) * (1 - norm_latency)
+            + (w["budget"] / total_w) * is_cheap_bonus
         )
         scored.append(CandidateScore(backend=b, quality=quality, cost=raw_costs[b], latency=raw_latencies[b], score=round(score, 4)))
 

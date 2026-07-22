@@ -40,6 +40,8 @@ def submit_feedback(body: FeedbackRequest, api_key=Depends(require_api_key), db:
     trace = crud.get_trace(db, body.trace_id)
     if trace is None:
         raise HTTPException(404, detail={"code": "trace_not_found", "message": "No such trace"})
+    if trace.org_id != api_key.org_id:
+        raise HTTPException(403, detail={"code": "forbidden", "message": "Trace belongs to a different org"})
     fb = crud.create_feedback(db, body.trace_id, body.rating, body.comment)
     if trace.intent and trace.backend_name:
         update_confidence(trace.intent, trace.backend_name, success=(body.rating == "up"))
